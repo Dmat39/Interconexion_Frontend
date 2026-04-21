@@ -1,6 +1,7 @@
 export type EstadoVecino = 'CITA' | 'INTERCONEXIÓN' | 'PENDIENTE' | 'CANCELADO';
 export type EstadoVisita = 'PROGRAMADA' | 'COMPLETADA' | 'NO_ATENDIDO' | 'REPROGRAMAR';
 export type EstadoGrupo = 'PENDIENTE' | 'EN_CURSO' | 'COMPLETADO';
+export type EstadoVecinal = 'ACTIVA' | 'INACTIVA' | 'RECUPERAR';
 
 export interface Vecino {
   id: string;
@@ -47,6 +48,8 @@ export interface GrupoVisita {
   fecha: string;
   sector?: string;
   estado: EstadoGrupo;
+  urbanizacion_id?: string;
+  urbanizacion?: Urbanizacion;
   observaciones?: string;
   visitas?: Visita[];
   created_at: string;
@@ -87,4 +90,29 @@ export interface PaginatedResult<T> {
   page: number;
   limit: number;
   pages: number;
+}
+
+export interface Urbanizacion {
+  id: string;
+  nombre: string;
+  sector?: string;
+  descripcion?: string;
+  vecinos?: Vecino[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VecinalActiva {
+  id: string;
+  nombre: string;
+  direccion?: string;
+  sector?: string;
+  tecnico?: string;
+  num_camaras?: number;
+  observaciones?: string;
+  estado: EstadoVecinal;
+  vecino_id?: string;
+  vecino?: Vecino;
+  created_at: string;
+  updated_at: string;
 }
