@@ -1,19 +1,20 @@
 'use client';
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
-import { Vecino, GrupoVisita } from '@/lib/types';
+import { Vecino, GrupoVisita, Urbanizacion } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
 interface Props {
   vecinos: Vecino[];
+  urbanizacion?: Urbanizacion | null; // ← nuevo prop opcional
   onClose: () => void;
   onSuccess: () => void;
 }
 
 type Modo = 'nuevo' | 'existente';
 
-export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) {
+export default function ModalCrearGrupo({ vecinos, urbanizacion, onClose, onSuccess }: Props) {
   const [modo, setModo] = useState<Modo>('nuevo');
   const [tecnicos, setTecnicos] = useState<string[]>([]);
   const [grupos, setGrupos] = useState<GrupoVisita[]>([]);
@@ -21,14 +22,21 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
   const [loading, setLoading] = useState(false);
 
   const hoy = format(new Date(), 'yyyy-MM-dd');
+
   const sectorPredominante = vecinos.reduce((acc, v) => {
     if (v.sector) acc[v.sector] = (acc[v.sector] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
-  const sector = Object.entries(sectorPredominante).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  const sector = urbanizacion?.sector ||
+    Object.entries(sectorPredominante).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+
+  // Si viene de urbanización el nombre incluye su nombre
+  const nombreInicial = urbanizacion
+    ? `Visita ${urbanizacion.nombre} ${hoy}`
+    : `Ruta ${sector} ${hoy}`;
 
   const [form, setForm] = useState({
-    nombre: `Ruta ${sector} ${hoy}`,
+    nombre: nombreInicial,
     tecnico: '',
     fecha: hoy,
     sector,
@@ -40,6 +48,7 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
     api.get('/configuracion/usuarios').then(r => {
       setTecnicos(r.data.map((u: any) => u.nombre));
     }).catch(() => {});
+    // Si viene de urbanización filtra grupos de esa urb
     api.get('/grupos').then(r => {
       setGrupos(r.data);
     }).catch(() => {});
@@ -60,6 +69,7 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
     try {
       await api.post('/grupos', {
         ...form,
+        urbanizacion_id: urbanizacion?.id || null, // ← vincula la urb
         vecino_ids: ordenedVecinos.map((v, i) => ({ id: v.id, orden: i + 1 })),
       });
       onSuccess();
@@ -96,24 +106,28 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
           <h2 className="text-lg font-bold text-gray-800">Asignar a grupo de visita</h2>
           <p className="text-sm text-gray-500 mt-1">{vecinos.length} vecino(s) seleccionado(s)</p>
 
-          {/* Toggle modo */}
+          {/* Badge de urbanización si viene desde ahí */}
+          {urbanizacion && (
+            <div className="mt-2 inline-flex items-center gap-1.5 bg-green-50 text-green-700 text-xs px-3 py-1.5 rounded-lg font-medium">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
+              </svg>
+              {urbanizacion.nombre}
+            </div>
+          )}
+
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mt-3">
-            <button
-              type="button"
-              onClick={() => setModo('nuevo')}
+            <button type="button" onClick={() => setModo('nuevo')}
               className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 modo === 'nuevo' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
+              }`}>
               Crear nuevo grupo
             </button>
-            <button
-              type="button"
-              onClick={() => setModo('existente')}
+            <button type="button" onClick={() => setModo('existente')}
               className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 modo === 'existente' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
+              }`}>
               Agregar a grupo existente
             </button>
           </div>
@@ -123,13 +137,13 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
           <form onSubmit={handleSubmitNuevo} className="p-6 space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del grupo</label>
-              <input value={form.nombre} onChange={e => setForm(f => ({...f, nombre: e.target.value}))}
+              <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Técnico asignado</label>
-              <select value={form.tecnico} onChange={e => setForm(f => ({...f, tecnico: e.target.value}))}
+              <select value={form.tecnico} onChange={e => setForm(f => ({ ...f, tecnico: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required>
                 <option value="">Seleccionar técnico...</option>
@@ -139,25 +153,23 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de visita</label>
-                <input type="date" value={form.fecha} onChange={e => setForm(f => ({...f, fecha: e.target.value}))}
+                <input type="date" value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Sector</label>
-                <input value={form.sector} onChange={e => setForm(f => ({...f, sector: e.target.value}))}
+                <input value={form.sector} onChange={e => setForm(f => ({ ...f, sector: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
-              <textarea value={form.observaciones} onChange={e => setForm(f => ({...f, observaciones: e.target.value}))}
+              <textarea value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))}
                 rows={2}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
-
             <OrdenVecinos vecinos={ordenedVecinos} onMover={moverVecino} />
-
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={onClose}
                 className="flex-1 border border-gray-300 rounded-lg py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
@@ -173,12 +185,9 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
           <form onSubmit={handleSubmitExistente} className="p-6 space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Seleccionar grupo existente</label>
-              <select
-                value={grupoSeleccionado}
-                onChange={e => setGrupoSeleccionado(e.target.value)}
+              <select value={grupoSeleccionado} onChange={e => setGrupoSeleccionado(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              >
+                required>
                 <option value="">Elegir grupo...</option>
                 {grupos.map(g => (
                   <option key={g.id} value={g.id}>
@@ -187,7 +196,6 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
                 ))}
               </select>
             </div>
-
             {grupoInfo && (
               <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700 space-y-1">
                 <div><span className="font-medium">Grupo:</span> {grupoInfo.nombre}</div>
@@ -197,9 +205,7 @@ export default function ModalCrearGrupo({ vecinos, onClose, onSuccess }: Props) 
                 <div><span className="font-medium">Visitas actuales:</span> {grupoInfo.visitas?.length ?? '—'}</div>
               </div>
             )}
-
             <OrdenVecinos vecinos={ordenedVecinos} onMover={moverVecino} />
-
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={onClose}
                 className="flex-1 border border-gray-300 rounded-lg py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">

@@ -14,80 +14,69 @@ interface ImportResult {
   errores: string[];
 }
 
-export default function ImportarPage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<ImportResult | null>(null);
-  const [result, setResult] = useState<ImportResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<'upload' | 'preview' | 'done'>('upload');
+type Step = 'upload' | 'preview' | 'done';
 
-  const onDrop = useCallback((files: File[]) => {
-    if (files.length > 0) {
-      setFile(files[0]);
-      setPreview(null);
-      setResult(null);
-      setStep('upload');
-    }
-  }, []);
+interface SheetState {
+  file: File | null;
+  preview: ImportResult | null;
+  result: ImportResult | null;
+  loading: boolean;
+  step: Step;
+}
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
-    maxFiles: 1,
-  });
+const SHEETS = [
+  {
+    id: 1,
+    title: 'Hoja 1 — Registro general de vecinos',
+    subtitle: 'Vecinos con coordenadas de cámaras',
+    color: 'blue',
+    previewEndpoint: '/import/preview/sheet1',
+    importEndpoint: '/import/excel/sheet1',
+  },
+  {
+    id: 2,
+    title: 'Hoja 2 — Recuperaciones',
+    subtitle: 'Recuperaciones en comunicación por sector',
+    color: 'orange',
+    previewEndpoint: '/import/preview/sheet2',
+    importEndpoint: '/import/excel/sheet2',
+  },
+  {
+    id: 3,
+    title: 'Hoja 3 — Visitas programadas',
+    subtitle: 'Visitas 1704',
+    color: 'purple',
+    previewEndpoint: '/import/preview/sheet3',
+    importEndpoint: '/import/excel/sheet3',
+  },
+] as const;
 
-  const handlePreview = async () => {
-    if (!file) return;
-    setLoading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const { data } = await api.post('/import/preview', fd);
-      setPreview(data);
-      setStep('preview');
-    } catch {
-      toast.error('Error al procesar el archivo');
-    } finally {
-      setLoading(false);
-    }
-  };
+const BADGE_COLORS: Record<string, string> = {
+  blue: 'bg-blue-500',
+  orange: 'bg-orange-500',
+  purple: 'bg-purple-500',
+};
 
-  const handleImport = async () => {
-    if (!file) return;
-    setLoading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const { data } = await api.post('/import/excel', fd);
-      setResult(data);
-      setStep('done');
-      toast.success('Importación completada');
-    } catch {
-      toast.error('Error durante la importación');
-    } finally {
-      setLoading(false);
-    }
-  };
+const BTN_COLORS: Record<string, string> = {
+  blue: 'bg-blue-500 hover:bg-blue-600',
+  orange: 'bg-orange-500 hover:bg-orange-600',
+  purple: 'bg-purple-500 hover:bg-purple-600',
+};
 
-  const reset = () => {
-    setFile(null);
-    setPreview(null);
-    setResult(null);
-    setStep('upload');
-  };
-
-  const ResultCard = ({ data, title }: { data: ImportResult; title: string }) => (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <h3 className="font-semibold text-gray-700 mb-4">{title}</h3>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-        {[
-          { label: 'Vecinos nuevos', value: data.vecinos_importados, color: 'text-green-600' },
-          { label: 'Actualizados', value: data.vecinos_actualizados, color: 'text-blue-600' },
-          { label: 'Cámaras', value: data.camaras_importadas, color: 'text-purple-600' },
-          { label: 'Recuperaciones', value: data.recuperaciones_importadas, color: 'text-orange-600' },
-          { label: 'Visitas', value: data.visitas_importadas, color: 'text-sky-600' },
-          { label: 'Errores', value: data.errores.length, color: data.errores.length > 0 ? 'text-red-600' : 'text-gray-400' },
-        ].map(item => (
+function ResultCard({ data, title }: { data: ImportResult; title: string }) {
+  const stats = [
+    { label: 'Vecinos nuevos', value: data.vecinos_importados, color: 'text-green-600' },
+    { label: 'Actualizados', value: data.vecinos_actualizados, color: 'text-blue-600' },
+    { label: 'Cámaras', value: data.camaras_importadas, color: 'text-purple-600' },
+    { label: 'Recuperaciones', value: data.recuperaciones_importadas, color: 'text-orange-600' },
+    { label: 'Visitas', value: data.visitas_importadas, color: 'text-sky-600' },
+    { label: 'Errores', value: data.errores.length, color: data.errores.length > 0 ? 'text-red-600' : 'text-gray-400' },
+  ];
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">{title}</p>
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        {stats.map(item => (
           <div key={item.label} className="text-center">
             <div className={`text-2xl font-bold ${item.color}`}>{item.value}</div>
             <div className="text-xs text-gray-500 mt-0.5">{item.label}</div>
@@ -96,8 +85,8 @@ export default function ImportarPage() {
       </div>
       {data.errores.length > 0 && (
         <div className="bg-red-50 rounded-lg p-3">
-          <div className="text-sm font-medium text-red-700 mb-2">Errores ({data.errores.length})</div>
-          <div className="max-h-32 overflow-y-auto space-y-1">
+          <div className="text-sm font-medium text-red-700 mb-1">Errores ({data.errores.length})</div>
+          <div className="max-h-28 overflow-y-auto space-y-1">
             {data.errores.map((e, i) => (
               <div key={i} className="text-xs text-red-600">{e}</div>
             ))}
@@ -106,86 +95,187 @@ export default function ImportarPage() {
       )}
     </div>
   );
+}
+
+function SheetDropzone({
+  file,
+  onFile,
+}: {
+  file: File | null;
+  onFile: (f: File) => void;
+}) {
+  const onDrop = useCallback(
+    (files: File[]) => { if (files[0]) onFile(files[0]); },
+    [onFile]
+  );
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+    maxFiles: 1,
+  });
+  return (
+    <div
+      {...getRootProps()}
+      className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
+        isDragActive
+          ? 'border-blue-500 bg-blue-50'
+          : file
+          ? 'border-green-500 bg-green-50'
+          : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+      }`}
+    >
+      <input {...getInputProps()} />
+      <div className="text-3xl mb-2">{file ? '✅' : '📂'}</div>
+      {file ? (
+        <>
+          <div className="font-medium text-gray-800 text-sm">{file.name}</div>
+          <div className="text-xs text-gray-500 mt-0.5">{(file.size / 1024).toFixed(1)} KB</div>
+        </>
+      ) : (
+        <>
+          <div className="font-medium text-gray-700 text-sm">Arrastra el archivo .xlsx aquí</div>
+          <div className="text-xs text-gray-500 mt-0.5">o haz clic para seleccionar</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SheetImporter({
+  sheet,
+}: {
+  sheet: (typeof SHEETS)[number];
+}) {
+  const [state, setState] = useState<SheetState>({
+    file: null, preview: null, result: null, loading: false, step: 'upload',
+  });
+
+  const set = (patch: Partial<SheetState>) =>
+    setState(prev => ({ ...prev, ...patch }));
+
+  const handlePreview = async () => {
+    if (!state.file) return;
+    set({ loading: true });
+    try {
+      const fd = new FormData();
+      fd.append('file', state.file);
+      const { data } = await api.post(sheet.previewEndpoint, fd);
+      set({ preview: data, step: 'preview' });
+    } catch {
+      toast.error('Error al procesar el archivo');
+    } finally {
+      set({ loading: false });
+    }
+  };
+
+  const handleImport = async () => {
+    if (!state.file) return;
+    set({ loading: true });
+    try {
+      const fd = new FormData();
+      fd.append('file', state.file);
+      const { data } = await api.post(sheet.importEndpoint, fd);
+      set({ result: data, step: 'done' });
+      toast.success(`Hoja ${sheet.id} importada correctamente`);
+    } catch {
+      toast.error('Error durante la importación');
+    } finally {
+      set({ loading: false });
+    }
+  };
+
+  const reset = () =>
+    setState({ file: null, preview: null, result: null, loading: false, step: 'upload' });
+
+  const btnColor = BTN_COLORS[sheet.color];
 
   return (
-    <AppLayout>
-      <div className="p-6 max-w-2xl mx-auto space-y-5">
-        <h1 className="text-2xl font-bold text-gray-800">Importar Excel</h1>
+    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className={`w-8 h-8 rounded-lg ${BADGE_COLORS[sheet.color]} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}>
+          {sheet.id}
+        </div>
+        <div>
+          <div className="font-semibold text-gray-800 text-sm">{sheet.title}</div>
+          <div className="text-xs text-gray-400">{sheet.subtitle}</div>
+        </div>
+      </div>
 
-        {/* Zona de subida */}
-        <div
-          {...getRootProps()}
-          className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
-            isDragActive
-              ? 'border-blue-500 bg-blue-50'
-              : file
-              ? 'border-green-500 bg-green-50'
-              : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-          }`}
-        >
-          <input {...getInputProps()} />
-          <div className="text-4xl mb-3">{file ? '✅' : '📂'}</div>
-          {file ? (
-            <div>
-              <div className="font-medium text-gray-800">{file.name}</div>
-              <div className="text-sm text-gray-500 mt-1">{(file.size / 1024).toFixed(1)} KB</div>
-            </div>
-          ) : (
-            <div>
-              <div className="font-medium text-gray-700">Arrastra el archivo .xlsx aquí</div>
-              <div className="text-sm text-gray-500 mt-1">o haz clic para seleccionar</div>
+      {/* Upload step */}
+      {state.step === 'upload' && (
+        <>
+          <SheetDropzone file={state.file} onFile={f => set({ file: f })} />
+          {state.file && (
+            <div className="flex gap-2">
+              <button
+                onClick={handlePreview}
+                disabled={state.loading}
+                className="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-200 disabled:opacity-60"
+              >
+                {state.loading ? 'Procesando...' : 'Vista previa'}
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={state.loading}
+                className={`flex-1 ${btnColor} text-white rounded-lg py-2 text-sm font-medium disabled:opacity-60`}
+              >
+                {state.loading ? 'Importando...' : 'Importar'}
+              </button>
             </div>
           )}
-        </div>
+        </>
+      )}
 
-        {file && step === 'upload' && (
-          <div className="flex gap-3">
-            <button onClick={handlePreview} disabled={loading}
-              className="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-200 disabled:opacity-60">
-              {loading ? 'Procesando...' : 'Vista previa (sin guardar)'}
+      {/* Preview step */}
+      {state.step === 'preview' && state.preview && (
+        <>
+          <ResultCard data={state.preview} title="Vista previa (sin guardar)" />
+          <div className="flex gap-2">
+            <button
+              onClick={reset}
+              className="flex-1 border border-gray-300 rounded-lg py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Cancelar
             </button>
-            <button onClick={handleImport} disabled={loading}
-              className="flex-1 bg-blue-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-600 disabled:opacity-60">
-              {loading ? 'Importando...' : 'Importar ahora'}
-            </button>
-          </div>
-        )}
-
-        {preview && step === 'preview' && (
-          <div className="space-y-4">
-            <ResultCard data={preview} title="Vista previa (sin guardar)" />
-            <div className="flex gap-3">
-              <button onClick={reset}
-                className="flex-1 border border-gray-300 rounded-lg py-2 text-sm text-gray-700 hover:bg-gray-50">
-                Cancelar
-              </button>
-              <button onClick={handleImport} disabled={loading}
-                className="flex-1 bg-blue-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-600 disabled:opacity-60">
-                {loading ? 'Importando...' : 'Confirmar importación'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {result && step === 'done' && (
-          <div className="space-y-4">
-            <ResultCard data={result} title="Resultado de importación" />
-            <button onClick={reset}
-              className="w-full bg-blue-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-600">
-              Nueva importación
+            <button
+              onClick={handleImport}
+              disabled={state.loading}
+              className={`flex-1 ${btnColor} text-white rounded-lg py-2 text-sm font-medium disabled:opacity-60`}
+            >
+              {state.loading ? 'Importando...' : 'Confirmar importación'}
             </button>
           </div>
-        )}
+        </>
+      )}
 
-        {/* Instrucciones */}
-        <div className="bg-blue-50 rounded-xl p-4 text-sm text-blue-700">
-          <div className="font-medium mb-2">El archivo Excel debe tener 3 hojas:</div>
-          <ol className="list-decimal list-inside space-y-1 text-blue-600">
-            <li><strong>Hoja 1:</strong> Registro general de vecinos con coordenadas de cámaras</li>
-            <li><strong>Hoja 2:</strong> Recuperaciones en comunicación por sector</li>
-            <li><strong>Hoja 3:</strong> Visitas programadas (VISITAS 1704)</li>
-          </ol>
-        </div>
+      {/* Done step */}
+      {state.step === 'done' && state.result && (
+        <>
+          <div className="flex items-center gap-2 bg-green-50 rounded-lg px-3 py-2">
+            <span className="text-green-600 font-semibold text-sm">✅ Importación completada</span>
+          </div>
+          <ResultCard data={state.result} title="Resultado" />
+          <button
+            onClick={reset}
+            className={`w-full ${btnColor} text-white rounded-lg py-2 text-sm font-medium`}
+          >
+            Nueva importación
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function ImportarPage() {
+  return (
+    <AppLayout>
+      <div className="p-6 max-w-2xl mx-auto space-y-4">
+        <h1 className="text-2xl font-bold text-gray-800">Importar Excel</h1>
+        {SHEETS.map(sheet => (
+          <SheetImporter key={sheet.id} sheet={sheet} />
+        ))}
       </div>
     </AppLayout>
   );
