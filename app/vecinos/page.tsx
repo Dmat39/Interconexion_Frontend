@@ -3,13 +3,11 @@ import { useEffect, useState, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import BadgeEstado from '@/components/BadgeEstado';
 import api from '@/lib/api';
-import { Vecino, PaginatedResult } from '@/lib/types';
+import { Vecino, PaginatedResult, Urbanizacion } from '@/lib/types';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { isAdmin } from '@/lib/auth';
-import ModalCrearGrupo from '@/components/ModalCrearGrupo';
 import ModalVecino from '@/components/ModalVecino';
-import { format } from 'date-fns';
 
 const ESTADOS = ['', 'CITA', 'INTERCONEXIÓN', 'PENDIENTE', 'CANCELADO'];
 
@@ -21,11 +19,13 @@ export default function VecinosPage() {
   const [sector, setSector] = useState('');
   const [sectores, setSectores] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showGrupoModal, setShowGrupoModal] = useState(false);
   const [showVecinoModal, setShowVecinoModal] = useState(false);
   const [editingVecino, setEditingVecino] = useState<Vecino | null>(null);
   const [loading, setLoading] = useState(true);
   const [admin, setAdmin] = useState(false);
+  const [urbanizaciones, setUrbanizaciones] = useState<Urbanizacion[]>([]);
+  const [urbSeleccionada, setUrbSeleccionada] = useState('');
+
   useEffect(() => { setAdmin(isAdmin()); }, []);
 
   const fetchVecinos = useCallback(async () => {
@@ -48,6 +48,10 @@ export default function VecinosPage() {
     api.get('/vecinos/sectores').then(r => setSectores(r.data));
   }, []);
 
+  useEffect(() => {
+    api.get('/urbanizaciones').then(r => setUrbanizaciones(r.data)).catch(() => {});
+  }, []);
+
   const toggleSelect = (id: string) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -63,14 +67,30 @@ export default function VecinosPage() {
     else setSelected(new Set(result.data.map(v => v.id)));
   };
 
-  const selectedVecinos = result?.data.filter(v => selected.has(v.id)) || [];
-
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar este vecino?')) return;
     await api.delete(`/vecinos/${id}`);
     toast.success('Vecino eliminado');
     fetchVecinos();
   };
+
+  const handleAsignarUrbanizacion = async () => {
+    if (!urbSeleccionada) { toast.error('Selecciona una urbanización'); return; }
+    try {
+      await api.post(`/urbanizaciones/${urbSeleccionada}/vecinos`, {
+        vecinoIds: Array.from(selected),
+      });
+      toast.success('Vecinos asignados a la urbanización');
+      setSelected(new Set());
+      setUrbSeleccionada('');
+      fetchVecinos();
+    } catch {
+      toast.error('Error al asignar');
+    }
+  };
+
+  const selectedVecinos = result?.data.filter(v => selected.has(v.id)) || [];
+  const panelAbierto = selected.size > 0;
 
   return (
     <AppLayout>
@@ -114,83 +134,184 @@ export default function VecinosPage() {
           </select>
         </div>
 
-        {/* Tabla */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left">
-                    <input type="checkbox" onChange={toggleAll}
-                      checked={result ? selected.size === result.data.length && result.data.length > 0 : false}
-                      className="rounded" />
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Nombre</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Dirección</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Sector</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Técnico</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Estado</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Cámaras</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">F. Tentativa</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-600">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {loading ? (
-                  <tr><td colSpan={9} className="text-center py-10 text-gray-400">Cargando...</td></tr>
-                ) : result?.data.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-10 text-gray-400">Sin resultados</td></tr>
-                ) : result?.data.map(v => (
-                  <tr key={v.id} className={`hover:bg-gray-50 ${selected.has(v.id) ? 'bg-blue-50' : ''}`}>
-                    <td className="px-4 py-3">
-                      <input type="checkbox" checked={selected.has(v.id)}
-                        onChange={() => toggleSelect(v.id)} className="rounded" />
-                    </td>
-                    <td className="px-4 py-3 font-medium text-gray-800">{v.nombre}</td>
-                    <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{v.direccion}</td>
-                    <td className="px-4 py-3 text-gray-600">{v.sector || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{v.nombre_gestor || '—'}</td>
-                    <td className="px-4 py-3"><BadgeEstado estado={v.estado} /></td>
-                    <td className="px-4 py-3 text-gray-600">{v.camaras?.length || v.num_camaras || 0}</td>
-                    <td className="px-4 py-3 text-gray-600">{v.fecha_tentativa || '—'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1">
-                        <Link href={`/vecinos/${v.id}`}
-                          className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
-                          Ver
-                        </Link>
-                        <button onClick={() => { setEditingVecino(v); setShowVecinoModal(true); }}
-                          className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
-                          Editar
-                        </button>
-                        {admin && (
-                          <button onClick={() => handleDelete(v.id)}
-                            className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">
-                            Eliminar
-                          </button>
-                        )}
-                      </div>
-                    </td>
+        {/* Tabla + Panel lateral */}
+        <div className="flex gap-4 items-start">
+          {/* Tabla */}
+          <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden transition-all duration-300 ${panelAbierto ? 'flex-1 min-w-0' : 'w-full'}`}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left">
+                      <input type="checkbox" onChange={toggleAll}
+                        checked={result ? selected.size === result.data.length && result.data.length > 0 : false}
+                        className="rounded" />
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Nombre</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Dirección</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Urbanización</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Sector</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Técnico</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Estado</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Cámaras</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">F. Tentativa</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Acciones</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {loading ? (
+                    <tr><td colSpan={10} className="text-center py-10 text-gray-400">Cargando...</td></tr>
+                  ) : result?.data.length === 0 ? (
+                    <tr><td colSpan={10} className="text-center py-10 text-gray-400">Sin resultados</td></tr>
+                  ) : result?.data.map(v => (
+                    <tr key={v.id} className={`hover:bg-gray-50 ${selected.has(v.id) ? 'bg-blue-50' : ''}`}>
+                      <td className="px-4 py-3">
+                        <input type="checkbox" checked={selected.has(v.id)}
+                          onChange={() => toggleSelect(v.id)} className="rounded" />
+                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-800">{v.nombre}</td>
+                      <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{v.direccion}</td>
+                      <td className="px-4 py-3">
+                        {v.urbanizaciones && v.urbanizaciones.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {v.urbanizaciones.map(u => (
+                              <span key={u.id}
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                {u.nombre}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{v.sector || '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{v.nombre_gestor || '—'}</td>
+                      <td className="px-4 py-3"><BadgeEstado estado={v.estado} /></td>
+                      <td className="px-4 py-3 text-gray-600">{v.camaras?.length || v.num_camaras || 0}</td>
+                      <td className="px-4 py-3 text-gray-600">{v.fecha_tentativa || '—'}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1">
+                          <Link href={`/vecinos/${v.id}`}
+                            className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                            Ver
+                          </Link>
+                          <button onClick={() => { setEditingVecino(v); setShowVecinoModal(true); }}
+                            className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
+                            Editar
+                          </button>
+                          {admin && (
+                            <button onClick={() => handleDelete(v.id)}
+                              className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">
+                              Eliminar
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Paginación */}
+            {result && result.pages > 1 && (
+              <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+                <div className="text-sm text-gray-500">
+                  {result.total} vecinos · Página {result.page} de {result.pages}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                    className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-50">
+                    Anterior
+                  </button>
+                  <button onClick={() => setPage(p => Math.min(result.pages, p + 1))} disabled={page === result.pages}
+                    className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-50">
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Paginación */}
-          {result && result.pages > 1 && (
-            <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-              <div className="text-sm text-gray-500">
-                {result.total} vecinos · Página {result.page} de {result.pages}
+          {/* Panel lateral */}
+          {panelAbierto && (
+            <div className="w-64 flex-shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden sticky top-6">
+              {/* Header panel */}
+              <div className="p-4 border-b border-gray-100">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-7 h-7 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-green-700" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800">Asignar urbanización</div>
+                    <div className="text-xs text-gray-500">{selected.size} vecino(s) seleccionado(s)</div>
+                  </div>
+                </div>
+
+                {/* Badges de vecinos seleccionados */}
+                <div className="flex flex-wrap gap-1 mt-3 max-h-20 overflow-y-auto">
+                  {selectedVecinos.map(v => (
+                    <span key={v.id}
+                      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                      {v.nombre.split(' ')[0]}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                  className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-50">
-                  Anterior
+
+              {/* Lista de urbanizaciones */}
+              <div className="p-3">
+                <p className="text-xs font-medium text-gray-500 mb-2">Seleccionar destino</p>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {urbanizaciones.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4">
+                      No hay urbanizaciones creadas
+                    </p>
+                  ) : urbanizaciones.map(u => (
+                    <label key={u.id}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                        urbSeleccionada === u.id
+                          ? 'border-green-500 bg-green-50'
+                          : 'border-gray-200 hover:border-green-300 hover:bg-gray-50'
+                      }`}>
+                      <input
+                        type="radio"
+                        name="urbanizacion"
+                        value={u.id}
+                        checked={urbSeleccionada === u.id}
+                        onChange={() => setUrbSeleccionada(u.id)}
+                        className="accent-green-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-gray-800 truncate">{u.nombre}</div>
+                        {u.sector && <div className="text-xs text-gray-500">{u.sector}</div>}
+                      </div>
+                      <div className="text-xs text-gray-400 flex-shrink-0">
+                        {u.vecinos?.length || 0}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Botones */}
+              <div className="p-3 border-t border-gray-100 space-y-2">
+                <button
+                  onClick={handleAsignarUrbanizacion}
+                  disabled={!urbSeleccionada}
+                  className="w-full bg-green-700 text-white rounded-lg py-2 text-sm font-medium hover:bg-green-800 disabled:opacity-50 transition-colors"
+                >
+                  Asignar
                 </button>
-                <button onClick={() => setPage(p => Math.min(result.pages, p + 1))} disabled={page === result.pages}
-                  className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-50">
-                  Siguiente
+                <button
+                  onClick={() => { setSelected(new Set()); setUrbSeleccionada(''); }}
+                  className="w-full border border-gray-300 rounded-lg py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Limpiar selección
                 </button>
               </div>
             </div>
@@ -198,35 +319,7 @@ export default function VecinosPage() {
         </div>
       </div>
 
-      {/* Barra flotante */}
-      {selected.size > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-[#1e3a5f] text-white px-6 py-3 flex items-center justify-between shadow-lg z-50">
-          <span className="text-sm font-medium">{selected.size} vecino(s) seleccionado(s)</span>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowGrupoModal(true)}
-              className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              Crear grupo de visita
-            </button>
-            <button
-              onClick={() => setSelected(new Set())}
-              className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              Limpiar selección
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showGrupoModal && (
-        <ModalCrearGrupo
-          vecinos={selectedVecinos}
-          onClose={() => setShowGrupoModal(false)}
-          onSuccess={() => { setShowGrupoModal(false); setSelected(new Set()); toast.success('Grupo creado exitosamente'); }}
-        />
-      )}
-
+      {/* Modal vecino */}
       {showVecinoModal && (
         <ModalVecino
           vecino={editingVecino}
